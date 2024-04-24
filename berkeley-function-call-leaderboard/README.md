@@ -36,22 +36,21 @@
 
 
 ### statistics
+```text
 gpt-4-0613:
-| test_category | accuracy |
-| rest | 0.4 | 
-| executable_simple | 0.85 | 
-| parallel_function | 1.00 |
-| multiple_function | 0.94 |
-| parallel_multiple_function | 1.00 |
+rest: 0.4
+executable_simple: 0.85
+parallel_function: 1.00
+multiple_function: 0.94
+parallel_multiple_function: 1.00
 
 gorilla:
-| test_category | accuracy |
-| rest | 1.0 | 
-| executable_simple | 0.95 | 
-| parallel_function | 0.84 |
-| multiple_function | 0.96 |
-| parallel_multiple_function | 0.82 |
-
+rest: 1.0
+executable_simple: '0.95', 
+executable_parallel_function: '0.84', 
+executable_multiple_function: '0.96', 
+executable_parallel_multiple_function: '0.82'
+```
 
 
 
