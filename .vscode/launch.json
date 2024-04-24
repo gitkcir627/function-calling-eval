@@ -17,15 +17,27 @@
             ]
         },
         {
-            "name": "Python Debugger: llama2",
+            "name": "Python Debugger: gpt_executable_simple",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/berkeley-function-call-leaderboard/",
             "args": [
-                "--model", "llama2",
-                "--test_category", "executable_simple",
+                "--model", "gpt-4-0613",
+                "--test_category", "executable_simple"
+            ]
+        },
+        {
+            "name": "Python Debugger: gorilla-openfunctions-v2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/berkeley-function-call-leaderboard/",
+            "args": [
+                "--model", "gorilla-openfunctions-v2",
+                "--test_category", "executable_parallel_function",
                 "--temperature", "0.3"
             ]
         }

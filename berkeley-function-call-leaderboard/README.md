@@ -17,9 +17,39 @@
         echo "export OPENAI_API_KEY=\"value\"" >> ~/.bashrc
         source ~/.bashrc
 
+        #fill the endpoint of this code block in models/models.py
+            model = ChatMistralAI(
+                model=model_name, 
+                #api_key="",
+                endpoint=""
+            )
+
         # run the evaluation
-        python openfunctions_evaluation.py --model gpt-4-0613 --test_category rest --temperature 0.3
+        #supported_model_list:
+        # gpt-*, gorilla-openfunctions-v2, mistral-*
+        python openfunctions_evaluation.py --model ${model} --test_category rest --temperature 0.3
+        python openfunctions_evaluation.py --model ${model} --test_category executable --temperature 0.3
+        #supported_model_list:
+        # gpt-*, gorilla-openfunctions-v2, mistral-*
+        
 ```
+
+### statistics
+gpt-4-0613:
+test_category: accuracy
+rest: 0.4
+executable_simple: 0.85
+parallel_function: 1.00
+multiple_function: 0.94
+parallel_multiple_function: 1.00
+
+gorilla:
+test_category: accuracy
+rest: 1.0
+executable_simple: 0.95, 
+executable_parallel_function: 0.84, 
+executable_multiple_function: 0.96, 
+executable_parallel_multiple_function: 0.82
 
 
 

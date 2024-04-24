@@ -1,73 +1,71 @@
 import os
 import re
 import json
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.output_parsers.openai_tools import JsonOutputToolsParser
 from utils.logger import logger
+from langchain_core.pydantic_v1 import BaseModel, Field, validator
+from langchain_openai import ChatOpenAI
+from langchain_mistralai import ChatMistralAI
 
 
 
 
 def call_to_model(
-    model, user_prompt, function, max_tokens, temperature, top_p, timeout
+    model_name, user_prompt, function, max_tokens, temperature, top_p, timeout, test_category
 ): 
     """
     Perform A single request to selected model based on the parameters.
     """
     result = None
     model_tools = None
-    if "gpt" in model:
-        # Build OAI tool calls.
-        model_tools = gpt_tools()
-        client = model_tools.get_client()
-        oai_tool = model_tools.build_openai_tools(function)
-        message = model_tools.build_message(user_prompt)
+    model = None
+    model_generated_function = None
+    # lang_chain supported model
+    if "gpt" in model_name or "mistral" in model_name:
+        model_tools = gpt_like_model_tools()
+        model = model_tools.get_model(model_name)
+        oai_tools = model_tools.build_openai_tools(function, model_name)
+        model = model.bind_tools(oai_tools)
+        #message = model_tools.build_message(user_prompt)
+        prompt = ChatPromptTemplate.from_messages([
+        	  ("system", "You're a helpful assistant"), 
+        	  ("human", "{input}"),
+          ]
+        )
+        parser = JsonOutputToolsParser()
+        chain = prompt | model | parser
+        response = None
+        try:
+            response = chain.invoke(user_prompt)
+            logger.info("model_generated_result: " + str(response))
+        except:
+            logger.info("Error occur when invoke model.")
 
-        if len(oai_tool) > 0:       
-            response = client.chat.completions.create(
-                messages=message,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
-                timeout=timeout,
-                tools=oai_tool,
+        if response != None:
+            model_generated_function = model_tools.convert_to_function_call_tool_calls(response, test_category)
+    elif "gorilla" in model_name:
+        model_tools = gpt_like_model_tools()
+        model = model_tools.get_model(model_name)
+        oai_tools = model_tools.build_openai_tools(function, model_name)
+        try:
+            completion = model.chat.completions.create(
+                model="gorilla-openfunctions-v2",
+                temperature=0.0,
+                messages=[{"role": "user", "content": user_prompt}],
+                functions=oai_tools,
             )
-                
-            try:
-                #result = model_tools.convert_to_function_call(response)
-                if response.choices[0].message.tool_calls != None:
-                    logger.info("tool_calls : \n" + str(response.choices[0].message.tool_calls))
-                    result = model_tools.convert_to_function_call_tool_calls(response)
-                else:
-                    result = None
-                    #result = response.choices[0].message.content
-            except:
-                    result = None
-                    #result = response.choices[0].message.content
-        '''
-        elif "llama" in model:
-            response = client.chat.completions.create(
-                messages="llama_message",
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
-                timeout=timeout,
-                tools=oai_tool,
-            )
-        else:
-            response = client.chat.completions.create(
-                messages=message,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
-                timeout=timeout,
-            )
-        '''
+            # completion.choices[0].message.content, string format of the function call 
+            # completion.choices[0].message.functions, Json format of the function call
+            response = completion.choices[0].message.function_call
+            if response != None:
+                model_generated_function = model_tools.convert_to_function_call_gorilla(response, test_category)
+        except Exception as e:
+            logger.info(str(e))
     else:
         logger.info("this model is not accepted now.")
         exit()
-    return result
+    return model_generated_function
 
 
 def extract_key_values(obj, prefix=''):
@@ -81,34 +79,35 @@ def extract_key_values(obj, prefix=''):
 
 
 
-class gpt_tools:
+class gpt_like_model_tools:
     def __init__(self):
         pass
 
-    def get_client(self):
-        from openai import OpenAI
-        client = OpenAI(api_key= os.environ.get("OPENAI_API_KEY"))
-        #client = OpenAI(api_key= "")
-        return client
-    
-    def build_message(self, user_prompt:str):
-        message_with_system_prompt = [
-            {"role": "system", "content": '''
-                You are an expert in composing functions. You are given a question and a set of possible functions. 
-                Based on the question, you will need to make one or more function/tool calls to achieve the purpose. 
-                If none of the function can be used, point it out. If the given question lacks the parameters required by the function,
-                also point it out. 
-                the result, function call, must contain the function and it parameters, in json format.
-                You should only return the function call without any redundant word or character.
-                '''},
-            {
-                "role": "user",
-                "content": "Questions:"
-                + user_prompt
-                + "\n Return Nothing if no tool or function calls are involved.",
-            }
-        ]
+    def get_model(self, model_name: str):
+        model = None
+        if "gpt" in model_name:
+            model = ChatOpenAI(
+                model=model_name, 
+                temperature=0, 
+                openai_api_key = os.environ.get("OPENAI_API_KEY")
+                #openai_api_key = ""
+            )
+        elif "mistral" in model_name:
+            model = ChatMistralAI(
+                model=model_name, 
+                #api_key="",
+                endpoint=""
+            )
+        elif "gorilla" in model_name:
+            from openai import OpenAI
+            model = OpenAI(
+                # This is the default and can be omitted
+                api_key="EMPTY",
+                base_url="http://luigi.millennium.berkeley.edu:8000/v1"
+            )
+        return model
 
+    def build_message(self, user_prompt:str):
         message = [
             {
                 "role": "user",
@@ -153,7 +152,7 @@ class gpt_tools:
                     properties[key]["items"]["type"] = "string"
         return properties    
 
-    def build_openai_tools(self, function:str):
+    def build_openai_tools(self, function, model_name):
         oai_tool = []
         for item in function:
             if "." in item["name"]:
@@ -173,79 +172,109 @@ class gpt_tools:
             item["parameters"]["properties"] = self._cast_multi_param_type(
                 item["parameters"]["properties"]
             )
-            oai_tool.append({"type": "function", "function": item})
+            if "gorilla" in model_name:
+                oai_tool.append(item)
+            else:
+                oai_tool.append({"type": "function", "function": item})
+            #oai_tool.append(item)
         return oai_tool
 
-
-    def convert_to_function_call(self, response):
-        response_content = str(response.choices[0].message.content)
-        response_content = response_content.replace("functions.", "")
-        response_content_dict = json.loads(response_content)
-
-        first_level_key = set()
-        second_level_key = set()
-
-        # Extract and print all key-value pairs
-        for key, value in extract_key_values(response_content_dict):
-            first_level_key.add(key.split(".")[0])
-            second_level_key.add(key.split(".")[1])
-
-        function_name = str(list(first_level_key)[0])
-        second_level_key = list(second_level_key)
-
-        function_params_json = json.dumps(response_content_dict[function_name])
-
-        for key in second_level_key:
-            function_params_json = re.sub(f'"{key}".?:', f'{key}=', function_params_json)
-
-        formated_function_params = '(' + function_params_json[1:-1] + ')'
-
-        formated_function_call = function_name + formated_function_params
-        print(formated_function_call)
-
-        return formated_function_call
-
-
-    def convert_to_function_call_tool_calls(self, response):
+    def convert_to_function_call_tool_calls(self, response, test_category):
         """
         Parse OAI param list into executable function calls.
         """
-        # Step 1: Remove the outer square brackets
-        response_tool_calls = str(response.choices[0].message.tool_calls[0])
-        #response_tool_calls = response_tool_calls[1:-1]
         output_func_list = []
+        # Step 1: Remove the outer square brackets
+        for response_tool_calls in response:
+            function_name = response_tool_calls["type"]
+            function_params = response_tool_calls["args"]
 
-        match = re.search(r"Function\(arguments='(\{.*?\})', name='(.*?)'\)", response_tool_calls, re.DOTALL)
-        function_name = None
-        params_str = None
-        if match:
-            params_str = match.group(1).replace("\\n", "")
-            function_name = match.group(2)
-        first_level_key = set()
-        # Extract and print all key-value pairs
-        for key, value in extract_key_values(json.loads(params_str)):
-            value = str(value)
-            if "." in key:
-                first_level_key.add(key.split(".")[0])
-            else:
-                first_level_key.add(key)
-
-        first_level_key = list(first_level_key)
-
-        function_params = params_str
-        for key in first_level_key:
-            function_params = re.sub(f'"{key}".?:', f'{key} =', function_params)
-
-        function_params = re.sub('= ?false', '= "false"', function_params)
-        function_params = re.sub('= ?true', '= "true"', function_params)
-
-        formated_function_params = '(' + function_params[1:-1] + ')'
-
-        formated_function_call = function_name.replace("_", ".") + formated_function_params
-
-        output_func_list.append(formated_function_call)
+            first_level_key = set()
+            # Extract and print all key-value pairs
+            for key, value in extract_key_values(function_params):
+                value = str(value)
+                if "." in key:
+                    first_level_key.add(key.split(".")[0])
+                else:
+                    first_level_key.add(key)
+            first_level_key = list(first_level_key)
+            function_params = str(function_params)
+            for key in first_level_key:
+                function_params = re.sub(f'\'{key}\'.?:', f'{key} =', function_params)
+            function_params = re.sub('= ?false', '= "false"', function_params)
+            function_params = re.sub('= ?true', '= "true"', function_params)
+            formated_function_params = '(' + function_params[1:-1] + ')'
+            formated_function_call = None
+            if "rest" in test_category:
+                formated_function_call = function_name.replace("_", ".") + formated_function_params
+            else: 
+                formated_function_call = function_name.replace(".", "_") + formated_function_params
+            output_func_list.append(formated_function_call)
         # Step 7: Format the function call
         return output_func_list
+    
+    def convert_to_function_call_gorilla(self, response, test_category):
+        output_func_list = []
+        if not isinstance(response, list):
+            function_name = None 
+            function_params = None
+            for element in response:
+                if element[0] == "name":
+                    function_name = element[1]
+                if element[0] == "arguments":
+                    function_params = element[1]
+            first_level_key = set()
+            # Extract and print all key-value pairs
+            for key, value in extract_key_values(function_params):
+                value = str(value)
+                if "." in key:
+                    first_level_key.add(key.split(".")[0])
+                else:
+                    first_level_key.add(key)
+            first_level_key = list(first_level_key)
+            function_params = str(function_params)
+            for key in first_level_key:
+                function_params = re.sub(f'\'{key}\'.?:', f'{key} =', function_params)
+            function_params = re.sub('= ?false', '= "false"', function_params)
+            function_params = re.sub('= ?true', '= "true"', function_params)
+            formated_function_params = '(' + function_params[1:-1] + ')'
+            formated_function_call = None
+            if "rest" in test_category:
+                formated_function_call = function_name.replace("_", ".") + formated_function_params
+            else: 
+                formated_function_call = function_name.replace(".", "_") + formated_function_params
+            output_func_list.append(formated_function_call)
+        else:
+            for function_call in response:
+                function_name = function_call.name
+                function_params = function_call.arguments
+                first_level_key = set()
+                # Extract and print all key-value pairs
+                for key, value in extract_key_values(function_params):
+                    value = str(value)
+                    if "." in key:
+                        first_level_key.add(key.split(".")[0])
+                    else:
+                        first_level_key.add(key)
+                first_level_key = list(first_level_key)
+                function_params = str(function_params)
+                for key in first_level_key:
+                    function_params = re.sub(f'\'{key}\'.?:', f'{key} =', function_params)
+                function_params = re.sub('= ?false', '= "false"', function_params)
+                function_params = re.sub('= ?true', '= "true"', function_params)
+                formated_function_params = '(' + function_params[1:-1] + ')'
+                formated_function_call = None
+                if "rest" in test_category:
+                    formated_function_call = function_name.replace("_", ".") + formated_function_params
+                else: 
+                    formated_function_call = function_name.replace(".", "_") + formated_function_params
+                output_func_list.append(formated_function_call)
+            # Step 7: Format the function call
+
+        return output_func_list
+
+
+
 
 
 
@@ -285,8 +314,7 @@ class llama_tools:
         return message
 
     
-class gorilla_openfunctions_tools:
-    pass
+
 
 class mistral_tools:
     pass

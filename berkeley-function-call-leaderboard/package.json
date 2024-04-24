@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@langchain/mistralai": "^0.0.19"
+  }
+}

@@ -43,9 +43,11 @@ def extract_key_values(obj, prefix=''):
 
 def flatten_function_call_params(function_call: str):
     params_str = None
-    match = re.search(r'\((.*)\)', function_call, re.DOTALL)
+    function_name = None
+    match = re.search(r'(.+)\((.*)\)', function_call, re.DOTALL)
     if match:
-        params_str = match.group(1)
+        function_name = match.group(1)
+        params_str = match.group(2)
 
     matches = re.findall(r'(\w+) ?=', params_str, re.DOTALL)
 
@@ -57,53 +59,80 @@ def flatten_function_call_params(function_call: str):
     params_str = re.sub("=", ':', params_str)
     params_str = "{" + params_str + "}"
 
-    flatted_function_call_params_dict = {}
+    flattened_function_call_params_dict = {}
 
     try:
         params_dict = json.loads(params_str)
         for key, value in extract_key_values(params_dict):
-            flatted_function_call_params_dict[key] = str(value)
+            flattened_function_call_params_dict[key] = str(value)
     except:
-        flatted_function_call_params_dict = None
+        flattened_function_call_params_dict = None
         logger.info("the function call params list cannot parse into dict.")
 
-    return flatted_function_call_params_dict
+    flattened_function = {"function_name": function_name, "params_dict": flattened_function_call_params_dict}
+    return flattened_function
 
 
 
 def compare_function_call_str(
-    ground_truth_function:list,
-    model_generated_function:list
+    ground_truth_functions:list,
+    model_generated_functions:list
 ):
     compare_result_list = []
-    result = None
 
-    ground_truth_function_params_dict = flatten_function_call_params(ground_truth_function)
-    model_generated_function_params_dict = flatten_function_call_params(model_generated_function)
-
-    if model_generated_function_params_dict == None or model_generated_function_params_dict == None:
-        function_similarity = fuzz.token_sort_ratio(
-            ground_truth_function, 
-            model_generated_function
-        )
-        result = True if function_similarity >= 90 else False
-
-    else:
-        if len(ground_truth_function_params_dict.keys()) - len(model_generated_function_params_dict.keys()) > 2:
-            result = False
-
-        correct_params_count = 0
-        for key in model_generated_function_params_dict.keys():
-            if key in ground_truth_function_params_dict:
-                if ground_truth_function_params_dict[key] == model_generated_function_params_dict[key]:
-                    correct_params_count += 1
-
-        if correct_params_count == len(model_generated_function_params_dict):
-            result = True
-        else:
-            result = False
+    if len(ground_truth_functions) != len(model_generated_functions):
+        return compare_result_list.append(False)
     
-    compare_result_list.append(result)
+    #sorted by function_name
+    ground_truth_functions = sorted(ground_truth_functions, key=lambda x: x.split("(")[0])
+    model_generated_functions = sorted(ground_truth_functions, key=lambda x: x.split("(")[0])
+
+    ground_truth_flattened_function_params = []
+    for ground_truth_function in ground_truth_functions:
+        flattened_function = flatten_function_call_params(ground_truth_function)
+        ground_truth_flattened_function_params.append(flattened_function["params_dict"])
+
+    model_generated_flattened_functions_params = []
+    for model_generated_function in model_generated_functions:
+        flattened_function = flatten_function_call_params(model_generated_function)
+        model_generated_flattened_functions_params.append(flattened_function["params_dict"])
+
+    # take param list from the same function_name to compare
+    for i in range(len(ground_truth_flattened_function_params)):
+        compare_result = None
+        ground_truth_function_params_dict = ground_truth_flattened_function_params[i]
+        model_generated_function_params_dict = model_generated_flattened_functions_params[i]
+
+        try:
+            if model_generated_function_params_dict == None or ground_truth_function_params_dict == None:
+                '''
+                function_similarity = fuzz.token_sort_ratio(
+                    ground_truth_functions, 
+                    model_generated_functions
+                )
+                result = True if function_similarity >= 90 else False
+                '''
+            else:
+                if len(ground_truth_function_params_dict.keys()) - len(model_generated_function_params_dict.keys()) > 2:
+                    compare_result = False
+
+                correct_params_count = 0
+                for key in model_generated_function_params_dict.keys():
+                    if key in ground_truth_function_params_dict:
+                        if ground_truth_function_params_dict[key] == model_generated_function_params_dict[key]:
+                            correct_params_count += 1
+
+                logger.info("model_generated_function_params_pair_count: " + str(len(model_generated_function_params_dict)))
+                logger.info("correct_params_count: " + str(correct_params_count))
+                if correct_params_count == len(model_generated_function_params_dict):
+                    compare_result = True
+                else:
+                    compare_result = False
+        except:
+            compare_result = False
+            logger.info("an error occur when compare the ground_truth_function and model_generated_function.")
+
+        compare_result_list.append(compare_result)
     
     return compare_result_list
 
