@@ -67,3 +67,8 @@ try:
         print(model_generated_function)
 except Exception as e:
     print(str(e))
+
+'''
+model generated result:
+["get.uid(fullname = 'Rick')", 'get.basic.info(uid = "get_uid(fullname=\'Rick\')")']
+'''
